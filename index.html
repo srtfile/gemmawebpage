@@ -1,236 +1,174 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <title>Stream Resolver</title>
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            background: #111;
-            color: #eee;
-            font-family: sans-serif;
-            padding: 2rem;
-        }
-
-        h2 {
-            margin-bottom: 1.5rem;
-            color: #e50914;
-        }
-
-        .row {
-            display: flex;
-            gap: .5rem;
-            margin-bottom: 1rem;
-        }
-
-        input {
-            padding: .6rem;
-            flex: 1;
-            max-width: 300px;
-            background: #222;
-            color: #fff;
-            border: 1px solid #444;
-            border-radius: 4px;
-        }
-
-        button {
-            padding: .6rem 1.2rem;
-            background: #e50914;
-            color: #fff;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-
-        button:hover {
-            background: #c00;
-        }
-
-        #status {
-            color: #aaa;
-            margin: .5rem 0 1rem;
-            font-size: .9rem;
-        }
-
-        .card {
-            background: #1e1e1e;
-            border-radius: 8px;
-            padding: 1rem;
-            margin: .5rem 0;
-        }
-
-        .lang {
-            font-weight: bold;
-            color: #e50914;
-            margin-bottom: .4rem;
-        }
-
-        .url {
-            font-size: .72rem;
-            color: #888;
-            word-break: break-all;
-            margin: .4rem 0;
-        }
-
-        .actions {
-            display: flex;
-            gap: .5rem;
-            margin-top: .5rem;
-        }
-
-        .actions a,
-        .actions button {
-            padding: .3rem .7rem;
-            font-size: .8rem;
-            border-radius: 4px;
-            text-decoration: none;
-            cursor: pointer;
-            border: none;
-        }
-
-        .btn-open {
-            background: #4af;
-            color: #000;
-        }
-
-        .btn-copy {
-            background: #444;
-            color: #fff;
-        }
-
-        .btn-copy:hover {
-            background: #666;
-        }
-
-        .error {
-            color: #f55;
-        }
-    </style>
+<meta charset="UTF-8">
+<title>Stream Resolver</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background:#111; color:#eee; font-family:sans-serif; padding:2rem; }
+  h2 { margin-bottom:1.5rem; color:#e50914; }
+  .row { display:flex; gap:.5rem; margin-bottom:1rem; }
+  input { padding:.6rem; flex:1; max-width:300px; background:#222; color:#fff; border:1px solid #444; border-radius:4px; }
+  button { padding:.6rem 1.2rem; background:#e50914; color:#fff; border:none; border-radius:4px; cursor:pointer; }
+  button:hover { background:#c00; }
+  #status { color:#aaa; margin:.5rem 0 1rem; font-size:.9rem; }
+  .card { background:#1e1e1e; border-radius:8px; padding:1rem; margin:.5rem 0; }
+  .lang { font-weight:bold; color:#e50914; margin-bottom:.4rem; }
+  .url { font-size:.72rem; color:#888; word-break:break-all; margin:.4rem 0; }
+  .actions { display:flex; gap:.5rem; margin-top:.5rem; }
+  .actions a, .actions button {
+    padding:.3rem .7rem; font-size:.8rem; border-radius:4px;
+    text-decoration:none; cursor:pointer; border:none;
+  }
+  .btn-open { background:#4af; color:#000; }
+  .btn-copy { background:#444; color:#fff; }
+  .btn-copy:hover { background:#666; }
+  .error { color:#f55; }
+</style>
 </head>
-
 <body>
-    <h2>🎬 Stream Resolver</h2>
-    <div class="row">
-        <input id="imdb" placeholder="tt0848228" value="tt0848228">
-        <button onclick="resolve()">Resolve</button>
-    </div>
-    <div id="status"></div>
-    <div id="results"></div>
+<h2>🎬 Stream Resolver</h2>
+<div class="row">
+  <input id="imdb" placeholder="tt0848228" value="tt0848228">
+  <button onclick="resolve()">Resolve</button>
+</div>
+<div id="status"></div>
+<div id="results"></div>
 
-    <script>
-        const BASE = "https://gemma416okl.com";
+<script>
+const BASE = "https://gemma416okl.com";
 
-        async function resolve() {
-            const imdb = document.getElementById("imdb").value.trim();
-            const status = document.getElementById("status");
-            const results = document.getElementById("results");
-            results.innerHTML = "";
-            status.textContent = "Resolving...";
-            status.className = "";
+// multiple CORS proxies with fallback
+const GET_PROXIES = [
+  url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  url => `https://thingproxy.freeboard.io/fetch/${url}`,
+  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+];
 
-            try {
-                // step 1: fetch play page via allorigins to bypass CORS
-                const pageUrl = `${BASE}/play/${imdb}`;
-                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(pageUrl)}`;
-                const pageRes = await fetch(proxyUrl);
-                const pageJson = await pageRes.json();
-                const html = pageJson.contents;
+const POST_PROXIES = [
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  url => `https://proxy.cors.sh/${url}`,
+  url => `https://cors-anywhere.herokuapp.com/${url}`,
+  url => `https://yacdn.org/proxy/${url}`,
+];
 
-                // step 2: parse p3 config
-                const cfgMatch = html.match(/let\s+p3\s*=\s*(\{.+?\});/s);
-                if (!cfgMatch) { throw new Error("Player config not found"); }
-                const cfg = JSON.parse(cfgMatch[1]);
-                const token = cfg.key;
-                const filePath = cfg.file;
+async function fetchWithFallback(url) {
+  for (const proxy of GET_PROXIES) {
+    try {
+      const res = await fetch(proxy(url), { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) continue;
+      const text = await res.text();
+      // allorigins wraps in JSON
+      try {
+        const j = JSON.parse(text);
+        if (j.contents) return j.contents;
+      } catch(e) {}
+      if (text.length > 100) return text;
+    } catch(e) { continue; }
+  }
+  throw new Error("All GET proxies failed");
+}
 
-                status.textContent = `Token found. Fetching tracks...`;
+async function postWithFallback(url, token, referer) {
+  for (const proxy of POST_PROXIES) {
+    try {
+      const res = await fetch(proxy(url), {
+        method: "POST",
+        headers: {
+          "X-CSRF-Token": token,
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Referer": referer,
+          "Origin": BASE,
+        },
+        body: "",
+        signal: AbortSignal.timeout(8000)
+      });
+      if (!res.ok) continue;
+      const raw = await res.arrayBuffer();
+      const text = new TextDecoder().decode(new Uint8Array(raw));
+      // try base64 decode
+      try {
+        const decoded = atob(text.trim());
+        if ("[{#h".includes(decoded[0])) {
+          if ("[{".includes(decoded[0])) return JSON.parse(decoded);
+          return decoded;
+        }
+      } catch(e) {}
+      if ("[{".includes(text[0])) return JSON.parse(text);
+      if (text.length > 10) return text;
+    } catch(e) { continue; }
+  }
+  throw new Error("All POST proxies failed");
+}
 
-                // step 3: POST to file endpoint via allorigins (GET trick)
-                const tracks = await postViaProxy(filePath, token, pageUrl);
-                const flatTracks = flatten(tracks).filter(t => t.file);
+async function resolve() {
+  const imdb = document.getElementById("imdb").value.trim();
+  const status = document.getElementById("status");
+  const results = document.getElementById("results");
+  results.innerHTML = "";
+  status.className = "";
+  status.textContent = "Fetching page...";
 
-                status.textContent = `Found ${flatTracks.length} track(s)`;
-                if (!flatTracks.length) return;
+  try {
+    const pageUrl = `${BASE}/play/${imdb}`;
+    const html = await fetchWithFallback(pageUrl);
 
-                // step 4: resolve each track
-                for (const t of flatTracks) {
-                    const fp = t.file;
-                    const pl = fp.startsWith("~") ? fp.slice(1) + ".txt" : fp;
-                    const plUrl = pl.startsWith("http") ? pl : `${BASE}/playlist/${encodeURIComponent(pl)}`;
-                    const raw = await postViaProxy(plUrl, token, pageUrl);
-                    const streamUrl = typeof raw === "string" ? raw.trim().split("\n")[0] : "";
+    const cfgMatch = html.match(/let\s+p3\s*=\s*(\{.+?\});/s);
+    if (!cfgMatch) throw new Error("Player config not found");
+    const cfg = JSON.parse(cfgMatch[1]);
+    const token = cfg.key;
+    const filePath = cfg.file;
 
-                    if (!streamUrl) continue;
+    status.textContent = "Token found. Fetching tracks...";
 
-                    results.innerHTML += `
+    const tracks = await postWithFallback(filePath, token, pageUrl);
+    const flatTracks = flatten(tracks).filter(t => t.file);
+
+    status.textContent = `Found ${flatTracks.length} track(s)`;
+    if (!flatTracks.length) return;
+
+    for (const t of flatTracks) {
+      const fp = t.file;
+      const pl = fp.startsWith("~") ? fp.slice(1) + ".txt" : fp;
+      const plUrl = pl.startsWith("http") ? pl : `${BASE}/playlist/${encodeURIComponent(pl)}`;
+      const raw = await postWithFallback(plUrl, token, pageUrl);
+      const streamUrl = typeof raw === "string" ? raw.trim().split("\n")[0] : "";
+      if (!streamUrl) continue;
+
+      results.innerHTML += `
         <div class="card">
           <div class="lang">${t.title || "?"}</div>
           <div class="url">${streamUrl}</div>
           <div class="actions">
             <a class="btn-open" href="${streamUrl}" target="_blank">▶ Open</a>
-            <button class="btn-copy" onclick="copy(this, '${streamUrl}')">Copy URL</button>
+            <button class="btn-copy" onclick="copyUrl(this, \`${streamUrl}\`)">Copy URL</button>
           </div>
         </div>`;
-                }
-            } catch (e) {
-                status.textContent = "Error: " + e.message;
-                status.className = "error";
-            }
-        }
+    }
+  } catch(e) {
+    status.textContent = "Error: " + e.message;
+    status.className = "error";
+  }
+}
 
-        async function postViaProxy(url, token, referer) {
-            // allorigins only supports GET, so we use corsproxy.io for POST
-            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
-            const res = await fetch(proxyUrl, {
-                method: "POST",
-                headers: {
-                    "X-CSRF-Token": token,
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Referer": referer,
-                    "Origin": BASE,
-                },
-                body: ""
-            });
-            const raw = await res.arrayBuffer();
-            const bytes = new Uint8Array(raw);
-            const text = new TextDecoder().decode(bytes);
+function flatten(obj) {
+  if (obj && typeof obj === "object" && !Array.isArray(obj)) return [obj];
+  if (Array.isArray(obj)) {
+    const out = [];
+    for (const i of obj) out.push(...flatten(i));
+    return out;
+  }
+  return [];
+}
 
-            // try base64 decode
-            try {
-                const decoded = atob(text.trim());
-                if (decoded[0] === "[" || decoded[0] === "{" || decoded.startsWith("http") || decoded[0] === "#") {
-                    if (decoded[0] === "[" || decoded[0] === "{") return JSON.parse(decoded);
-                    return decoded;
-                }
-            } catch (e) { }
-
-            if (text[0] === "[" || text[0] === "{") return JSON.parse(text);
-            return text;
-        }
-
-        function flatten(obj) {
-            if (obj && typeof obj === "object" && !Array.isArray(obj)) return [obj];
-            if (Array.isArray(obj)) {
-                const out = [];
-                for (const i of obj) out.push(...flatten(i));
-                return out;
-            }
-            return [];
-        }
-
-        function copy(btn, url) {
-            navigator.clipboard.writeText(url).then(() => {
-                btn.textContent = "Copied!";
-                setTimeout(() => btn.textContent = "Copy URL", 2000);
-            });
-        }
-    </script>
+function copyUrl(btn, url) {
+  navigator.clipboard.writeText(url).then(() => {
+    btn.textContent = "Copied!";
+    setTimeout(() => btn.textContent = "Copy URL", 2000);
+  });
+}
+</script>
 </body>
-
 </html>
