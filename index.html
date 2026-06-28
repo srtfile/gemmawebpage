@@ -39,18 +39,18 @@
 const BASE = "https://gemma416okl.com";
 const WORKER = "https://gemma.narutoanimeinspirationquote.workers.dev";
 
-function workerGet(url) {
+function w(url) {
   return `${WORKER}?url=${encodeURIComponent(url)}`;
 }
 
 async function fetchGet(url) {
-  const res = await fetch(workerGet(url), { signal: AbortSignal.timeout(10000) });
-  if (!res.ok) throw new Error(`GET failed: ${res.status}`);
+  const res = await fetch(w(url), { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(`GET failed: ${res.status} — worker may be down`);
   return await res.text();
 }
 
 async function fetchPost(url, token, referer) {
-  const res = await fetch(workerGet(url), {
+  const res = await fetch(w(url), {
     method: "POST",
     headers: {
       "X-CSRF-Token": token,
@@ -65,7 +65,6 @@ async function fetchPost(url, token, referer) {
   const raw = await res.arrayBuffer();
   const text = new TextDecoder().decode(new Uint8Array(raw));
 
-  // try base64 decode
   try {
     const decoded = atob(text.trim());
     if ("[{#h".includes(decoded[0])) {
@@ -74,8 +73,18 @@ async function fetchPost(url, token, referer) {
     }
   } catch(e) {}
 
-  if ("[{".includes(text[0])) return JSON.parse(text);
+  if (text[0] === "[" || text[0] === "{") return JSON.parse(text);
   return text;
+}
+
+function flatten(obj) {
+  if (obj && typeof obj === "object" && !Array.isArray(obj)) return [obj];
+  if (Array.isArray(obj)) {
+    const out = [];
+    for (const i of obj) out.push(...flatten(i));
+    return out;
+  }
+  return [];
 }
 
 async function resolve() {
@@ -91,7 +100,7 @@ async function resolve() {
     const html = await fetchGet(pageUrl);
 
     const cfgMatch = html.match(/let\s+p3\s*=\s*(\{.+?\});/s);
-    if (!cfgMatch) throw new Error("Player config not found");
+    if (!cfgMatch) throw new Error("Player config not found in page");
     const cfg = JSON.parse(cfgMatch[1]);
     const token = cfg.key;
     const filePath = cfg.file;
@@ -101,8 +110,12 @@ async function resolve() {
     const tracks = await fetchPost(filePath, token, pageUrl);
     const flatTracks = flatten(tracks).filter(t => t.file);
 
-    status.textContent = `Found ${flatTracks.length} track(s)`;
-    if (!flatTracks.length) { status.textContent = "No tracks found."; return; }
+    if (!flatTracks.length) {
+      status.textContent = "No tracks found.";
+      return;
+    }
+
+    status.textContent = `Found ${flatTracks.length} track(s). Resolving streams...`;
 
     for (const t of flatTracks) {
       const fp = t.file;
@@ -127,22 +140,13 @@ async function resolve() {
         </div>`;
     }
 
+    status.textContent = `Done. ${results.children.length} stream(s) resolved.`;
     if (!results.innerHTML) status.textContent = "No stream URLs resolved.";
 
   } catch(e) {
     status.textContent = "Error: " + e.message;
     status.className = "error";
   }
-}
-
-function flatten(obj) {
-  if (obj && typeof obj === "object" && !Array.isArray(obj)) return [obj];
-  if (Array.isArray(obj)) {
-    const out = [];
-    for (const i of obj) out.push(...flatten(i));
-    return out;
-  }
-  return [];
 }
 
 function copyUrl(btn, url) {
